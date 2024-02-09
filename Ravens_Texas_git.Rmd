@@ -1,0 +1,206 @@
+---
+title: "Ravens Texans Preview"
+author: "Yonathan Melamed"
+date: '2024-01-18'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(nflfastR)
+library(tidyverse)
+library(nflverse)
+library(ggplot2)
+library(ggrepel)
+library(knitr)
+library(kableExtra)
+library(reactable)
+library(reactablefmtr)
+library(knitr)
+#load and join data
+ftn=load_ftn_charting()
+pbp = load_pbp()
+nextgen=load_participation()
+pbp_ftn = pbp %>% 
+  left_join(ftn, by = c("game_id"="nflverse_game_id", "play_id"="nflverse_play_id"))
+ftn_nextgen = pbp_ftn %>% 
+  left_join(nextgen, by =  c("game_id"="nflverse_game_id", "play_id"="play_id"))
+```
+
+
+Happy almost Purple Friday. I've put together a short preview of the Ravens divisional round matchup against the Texans, with the goal of using play by play and FTN charting data to figure out the best ways to attack Houston, both offensively and defensively. We start with an analysis of C.J. Stroud and look to see what methods Mike Macdonald can employ to slow down this offense.
+
+## Ravens D vs Stroud
+
+First, let's take a look at how C.J. Stroud has fared inside the pocket vs when he's been forced outside the pocket:
+
+
+```{r pocket, echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+## QB Pocket Analysis
+
+inpocket=pbp_ftn %>% 
+  filter(!is.na(passer_player_name), !is.na(epa), is_qb_out_of_pocket==0, qb_dropback==1) %>% 
+  group_by(passer_player_name) %>%
+  summarise(meanepa_inpocket=mean(epa), totepa_inpocket=sum(epa), plays_inpocket=n()) %>% 
+  filter(plays_inpocket>50) 
+pocket= pbp_ftn %>% 
+  filter(!is.na(passer_player_name), !is.na(epa), is_qb_out_of_pocket==1, qb_dropback==1) %>% 
+  group_by(passer_player_name) %>%
+  summarise(meanepa_outpocket=mean(epa), totepa_outpocket=sum(epa), plays_outpocket=n(), team=last(posteam)) %>% 
+  filter(plays_outpocket>50)   %>% 
+  left_join(inpocket, by = c("passer_player_name")) %>% 
+  mutate(meanepadiff=meanepa_inpocket-meanepa_outpocket, tot_plays=plays_inpocket+plays_outpocket, inpocket_prop=plays_inpocket/tot_plays)
+#plot
+#add colors
+pocket <- pocket %>%
+  left_join(load_teams(), by = c('team' = 'team_abbr'))
+pocket %>% 
+  ggplot(aes(x=meanepa_inpocket, y=meanepa_outpocket)) +
+  geom_hline(yintercept = mean(pocket$meanepa_outpocket),color = "red", linetype = "dashed", alpha=0.5) +
+  geom_vline(xintercept = mean(pocket$meanepa_inpocket), color = "red", linetype = "dashed", alpha=0.5) +
+  geom_point(color=pocket$team_color, cex=pocket$inpocket_prop*5, alpha = .6) +
+  geom_text_repel(aes(label=passer_player_name)) +
+  stat_smooth(geom='line', alpha=0.5, se=FALSE, method='lm')+
+  theme_bw() +
+  #center title with hjust = 0.5
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5, face = "bold")
+  ) +
+  labs(x="Dropback EPA/P In the Pocket", y= "Dropback EPA/P Out of Pocket", title = "EPA/P In Pocket vs Out of Pocket 2023", caption = "Yonathan Melamed, data: @nflfastR; FTN Charting")+
+  #make ticks look nice
+  #if this doesn't work, `install.packages('scales')`
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))
+```
+
+
+Stroud has been extremely efficient inside the pocket, finishing top 5 in efficiency in dropbacks that ended inside the pocket (this includes sacks, runs, etc.). Impressive is an understatement for this rookie. However, his splits when forced outside the pocket aren't as strong. We see he's still above the average QB in EPA per play, but is averaging -.14 EPA outside the pocket vs .15 EPA inside, a clear and significant difference. Forcing Stroud out of the pocket may expose a vulnerability. Next, we'll look at whether blitzing might be a smart way of accomplishing that.
+
+
+```{r blitz, echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+#####################################################Blitz Analysis
+
+noblitz=pbp_ftn %>% 
+  filter(!is.na(passer_player_name), !is.na(epa), n_blitzers==0, qb_dropback==1) %>% 
+  group_by(passer_player_name) %>%
+  summarise(meanepa_noblitz=mean(epa), totepa_noblitz=sum(epa), plays_noblitz=n(), team=last(posteam)) %>% 
+  filter(plays_noblitz>250) 
+blitz= pbp_ftn %>% 
+  filter(!is.na(passer_player_name), !is.na(epa), n_blitzers>0, qb_dropback==1) %>% 
+  group_by(passer_player_name) %>%
+  summarise(meanepa_blitz=mean(epa), totepa_blitz=sum(epa), plays_blitz=n()) %>% 
+  filter(plays_blitz>50)   %>% 
+  right_join(noblitz, by = c("passer_player_name")) %>% 
+  mutate(meanepadiff=meanepa_noblitz-meanepa_blitz, tot_plays=plays_noblitz+plays_blitz, blitz_prop=plays_blitz/tot_plays)
+#plot
+blitz = blitz %>%
+  left_join(load_teams(), by = c('team' = 'team_abbr'))
+blitz %>% 
+  ggplot(aes(x=meanepa_blitz, y=meanepa_noblitz)) +
+  geom_hline(yintercept = mean(blitz$meanepa_noblitz),color = "red", linetype = "dashed", alpha=0.5) +
+  geom_vline(xintercept = mean(blitz$meanepa_blitz), color = "red", linetype = "dashed", alpha=0.5) +
+  geom_point(color=blitz$team_color, cex=blitz$blitz_prop*10, alpha = .6) +
+  geom_text_repel(aes(label=passer_player_name)) +
+  stat_smooth(geom='line', alpha=0.5, se=FALSE, method='lm')+
+  theme_bw() +
+  #center title with hjust = 0.5
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5, face = "bold")
+  ) +
+  labs(x="Dropback EPA/P vs Blitz", y= "Dropback EPA/P vs No Blitz", title = "EPA/P Blitz vs No Blitz 2023", caption = "Yonathan Melamed, data: @nflfastR; FTN Charting")+
+  #make ticks look nice
+  #if this doesn't work, `install.packages('scales')`
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))
+```
+
+
+While Stroud plays better when he's not blitzed, he's still averaging positive EPA on blitzes. He's right around there with Lamar Jackson, who we know can be susceptible to struggling when blitzed at times, but with the right gameplan can also make the defense pay for it. So a blitz heavy gameplan may not be the ideal solution. Next, we'll take a look at how Stroud has fared against each defense he's played, and what that defense has done schematically to try to temper his production.
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+#defense
+############################ break down defense in Stroud games
+tex=pbp_ftn %>% 
+  filter(passer_player_name=="C.Stroud", qb_dropback==1, !is.na(n_blitzers)) %>% 
+  mutate(blitz=if_else(n_blitzers>0, 1, 0)) %>% 
+  group_by(week.x,defteam) %>% 
+  summarise(plays=n(), epa_mean=mean(epa), blitz_rate=sum(blitz)/plays, oop_rate=sum(is_qb_out_of_pocket)/plays, avg_defenders=mean(n_defense_box)) 
+
+#make chart
+color_set <- c("#f7c844","#429460","#2e6d9e")
+#add logo
+#ADD LOGOS
+logos=teams_colors_logos
+logos=logos %>% select(team_abbr, team_logo_espn)
+tex = tex %>% 
+  left_join(logos, by = c("defteam"="team_abbr")) %>%
+  rename(def_logo=team_logo_espn)
+tex_table=tex %>% 
+  select(week.x, def_logo, plays, epa_mean, blitz_rate, oop_rate, avg_defenders)
+tex_table[, 3:7 ] <- round(tex_table[,3:7], digits = 3)
+tex_table %>% reactable(
+  columns = list(
+    def_logo = colDef(cell = embed_img(height = 60, width = 60), name = "Defense", width = 100, align = 'center'),
+    week.x= colDef(name = "Week", width = 60, align = "center"),
+   # defteam=colDef(name="Opponent", width = 80, align = "center"),
+    plays=colDef(name = "Dropbacks", width = 80, align = "center"),
+    epa_mean=colDef(name="EPA per Dropback", format = colFormat(digits = 3), cell = color_tiles(tex_table[], colors = color_set), align = "center", maxWidth = 130),
+    blitz_rate=colDef(name="Blitz Rate", format = colFormat(digits = 3), cell = color_tiles(tex_table[], colors = color_set), align = "center", maxWidth = 130),
+    oop_rate=colDef(name="Out of Pocket Rate", format = colFormat(digits = 3), cell = color_tiles(tex_table[], colors = color_set), align = "center", maxWidth = 130),
+    avg_defenders=colDef(name="Average Defenders in the Box", format = colFormat(digits = 3), cell = color_tiles(tex_table[], colors = color_set), align = "center", maxWidth = 130)),
+  theme = espn(),
+    highlight = TRUE,
+    striped = TRUE,
+    pagination = FALSE) %>% 
+  google_font(font_family = 'Kanit') %>% 
+  add_title(title = "CJ Stroud EPA and Defensive Strategies") 
+
+
+
+    #force him out of the pocket, don't blitz
+```
+
+
+
+(Note that this table is sortable by clicking on the column name.) Unsurprisingly, Stroud has fared worst against some of the best defenses in the Jets, Ravens, and Saints. Looking back at our previous analysis, notice that the Ravens kept him in the pocket the last time they played each other. I'd be cautious to take away too much from a quarterback's first game in the NFL. Still, it seems a bit more ambiguous whether keeping him out of the pocket is the definite correct strategy. While 3 of his 5 best games were against defenses that let him stay in the pocket >89% of the time, he also played very well against the Bucs, when he left the pocket ~25% of the time. What does seem more clear is that the Ravens should be cautious to blitz heavy and stack the box. Case in point, take a look at how the top ranked Browns defense fell apart with that same gampelan (>7 average defenders in the box on dropbacks!). In sum, the Ravens should be very careful to blitz Stroud too much, but can test the theory that getting Stroud out of the pocket takes him out of his comfort zone. Macdonald's stunts may be a fine method of accomplishing this. Next, we'll take a look at the Ravens offense and what could be their keys' to success. 
+
+<center>
+## Ravens Offense vs Texans Defense
+
+The Texans are an average defense, and while they were able to frustrate Joe Flacco last week, I wouldn't expect the same against the Lamar Jackson. There's many ways the Ravens can attack this defense, but I'll focus on one. Ravens fans grew a big smile yesterday seeing Mark Andrews listed as a full participant in practice, and he seemingly has a real shot of playing Sunday. That would be a huge boost to the offense, as Lamar's long time security blanket would add another dimension to this offense that has caught fire lately. With Zay Flowers, Rashod Bateman, OBJ, and now Andrews all hitting their stride, Lamar finally has the support cast needed to overcome his playoff struggles. And yet, Todd Monken and the offense should not be overlooking the player who replaced Andrews (the multi-time Pro Bowler) without skipping a beat. Isiah Likely has been a key factor in the team's success against strong opponents lately, with his key highlight being the one handed grab on fourth down against the Dolphins that opened up the flood gates for the Ravens to run away with the game. While that was a great grab, Likely isn't known for his spectacular catching abilities (Ravens fans will remember his drop problems last year). Instead, Likely has been a certified YAC merchant for this offense. Below, you can see the top receivers this year at EPA gained from YAC, and YAC EPA over expected using nflFastR's model. The model attempts to quantify how much YAC EPA a player would be expected to gain, given factors such as down, distance, and throw area, and finds the difference in how much EPA the player actually ended up gaining. 
+
+</center>
+```{r yac, echo=FALSE, warning=FALSE, fig.align='center'}
+i=pbp_ftn %>% 
+  filter(!is.na(yac_epa), complete_pass==1, !is.na(xyac_epa)) %>% 
+  group_by(receiver_player_name) %>% 
+  summarise(meanepa=mean(epa), meanepaoe=mean(yac_epa-xyac_epa), totepa=sum(epa), plays=n(), team=last(posteam)) %>% 
+  filter(plays>25)  
+i = i %>%
+  left_join(load_teams(), by = c('team' = 'team_abbr'))
+i %>% 
+  ggplot(aes(x=meanepa, y=meanepaoe)) +
+  geom_hline(yintercept = mean(i$meanepaoe),color = "red", linetype = "dashed", alpha=0.5) +
+  geom_vline(xintercept = mean(i$meanepa), color = "red", linetype = "dashed", alpha=0.5) +
+  geom_point(color=i$team_color, alpha = .6) +
+  geom_point(data=i %>% filter(receiver_player_name=="I.Likely"),
+             pch=21,
+             size=4,
+             colour="purple") +
+  geom_text_repel(aes(label=receiver_player_name)) +
+ # stat_smooth(geom='line', alpha=0.5, se=FALSE, method='lm')+
+  theme_bw() +
+  #center title with hjust = 0.5
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5, face = "bold")
+  ) +
+  labs(x="YAC EPA per Catch", y= "YAC EPA per Catch Over Expected", title = "YAC and YACOE EPA/P 2023", caption = "Yonathan Melamed, data: @nflfastR")+
+  #make ticks look nice
+  #if this doesn't work, `install.packages('scales')`
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))
+```
+
+Take a look at the top right. Among receivers with at least 25 catches, Likely averages the 13th most YAC EPA per catch, and the most YAC EPA over expected out of any player in the league (Mark Andrews is also 20th in this measure). Simply put, Likely can be a gamechanger and the Ravens should find a way to keep him on the field. Well, many of us analytically minded Ravens fans have noticed how efficient Monken has been calling plays out of 12 personnel. Per Sumer Sports, they average .2 EPA per play and .48 EPA per pass, good for 1st and 2nd in the league, respectively. On the opposite side of the field, Houston has struggled defending 12 personnel, giving up the 8th most EPA per play and the 3rd most EPA per pass. It is true that many of the Ravens plays out of 12 personnel thus far have included Pat Ricard lining up at TE. Nonetheless, given their incredible success and their two very strong weapons at TE, they would be fools not to try to attack one of Houston's weaknesses with a pair of playmakers.

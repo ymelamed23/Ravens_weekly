@@ -1,0 +1,233 @@
+---
+title: "Ravens Chiefs Preview"
+author: "Yonathan Melamed"
+date: '2024-01-26'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(nflfastR)
+library(tidyverse)
+library(nflverse)
+library(ggplot2)
+library(ggrepel)
+library(knitr)
+library(kableExtra)
+library(reactable)
+library(reactablefmtr)
+library(knitr)
+#load and join data
+ftn=load_ftn_charting()
+pbp = load_pbp()
+nextgen=load_participation()
+pbp_ftn = pbp %>% 
+  left_join(ftn, by = c("game_id"="nflverse_game_id", "play_id"="nflverse_play_id"))
+ftn_nextgen = pbp_ftn %>% 
+  left_join(nextgen, by =  c("game_id"="nflverse_game_id", "play_id"="play_id"))
+```
+
+
+Happy Purple Friday! As we move on to the Ravens first AFC Championship since 2013, I've come up with a couple keys to the game to limit KC's attack and expose a defensive vulnerability.
+
+## Limit YAC and Screens
+
+First, I'll start by stating that any hope of stopping Mahomes can be instantly erased if the playoff Mahomes that we're used to seeing shows up. Nonetheless, we can center in on a key theme of KC's passing offense: reliance on yards after catch. It's no secret that the Chiefs receiving core has let down Mahomes this year with their subpar catching ability. With that and the excellent playmaking abilities of Travis Kelce and Rashee Rice, the Chiefs have relied on picking up yardage after the catch.
+
+
+```{r pocket, echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+## YAC Analysis
+
+yac =pbp %>% 
+  filter(!is.na(epa), complete_pass==1, !is.na(yac_epa)) %>% 
+  group_by(posteam) %>% 
+  summarise(tot_epa=sum(epa), airy_epa=sum(air_epa), yacy_epa=sum(yac_epa), yac_prop=yacy_epa/tot_epa,air_prop=airy_epa/tot_epa, plays=n()) %>% 
+  arrange(-yac_prop) 
+yac <- yac %>%
+  left_join(load_teams(), by = c('posteam' = 'team_abbr'))
+
+yac = yac %>% 
+  arrange(-yac_prop)
+  yac %>%
+    ggplot(aes(x = seq_along(yac_prop), y = yac_prop)) +
+    geom_hline(aes(yintercept = mean(yac_prop)), color = "red", linetype = "dashed") +
+    geom_col(width = .5, colour = yac$team_color, fill = yac$team_color, alpha = 0.5) +
+    geom_nfl_logos(aes(team_abbr = posteam), width = 0.04, alpha = 0.75) +
+    #ggpmisc::geom_grob(aes(x = seq_along(diff), y = diff, label = grob), vp.width = 0.035) +
+    # scale_x_continuous(expand = c(0,0)) +
+    labs(
+      x = "Rank",
+      y = "YAC EPA Share \n",
+      title = "YAC EPA Share of Total EPA on Completions",
+      caption = "Figure: @yonathanmelamed | Data: @nflfastR"
+    ) +
+    ggthemes::theme_economist() +
+    theme(
+      plot.title = element_text(face = "bold"),
+      plot.caption = element_text(hjust = 1),
+      axis.text.y = element_text(angle = 0, vjust = 0.5),
+      legend.title = element_text(size = 8, hjust = 0, vjust = 0.5, face = "bold"),
+      legend.position = "top",
+      aspect.ratio = 1 / 1.618
+    )
+  
+```
+The Ravens defense has done a solid job at, among other things, limiting opponent YAC. They have not only one of the best linebacker duos in the league, but also multiple secondary players who are not afraid of taking on contact after the catch (a nice change up from Marcus Peters), and of course one of the best playmakers in the league in Kyle Hamilton.
+
+
+```{r yac_screen, echo=FALSE, warning=FALSE, message=FALSE,  fig.show="hold", out.width="50%"}
+#####################################################Blitz Analysis
+yac =pbp %>% 
+  filter(!is.na(epa), complete_pass==1, !is.na(yac_epa)) %>% 
+  group_by(posteam) %>% 
+  summarise(tot_epa=sum(epa), airy_epa=sum(air_epa), yacy_epa=sum(yac_epa),meanyac=mean(yac_epa), yac_prop=yacy_epa/tot_epa,air_prop=airy_epa/tot_epa, plays=n()) %>% 
+  arrange(-yac_prop) 
+yac <- yac %>%
+  left_join(load_teams(), by = c('posteam' = 'team_abbr'))
+#yac o vs d
+yac_d =pbp %>% 
+    filter(!is.na(epa), complete_pass==1, !is.na(yac_epa)) %>% 
+    group_by(defteam) %>% 
+    summarise(yacy_epa_d=sum(yac_epa), meanepayac_d=mean(yac_epa),plays_d=n())
+yac_combined = 
+  yac %>% 
+  left_join(yac_d, by = c("posteam"='defteam'))
+#plot o vs d
+yac_combined %>% 
+  ggplot(aes(x=meanyac, y=meanepayac_d)) +
+  geom_nfl_logos(aes(team_abbr = posteam), width = 0.07, alpha = 0.75) +
+  geom_hline(yintercept = mean(yac_combined$meanepayac_d),color = "red", linetype = "dashed", alpha=0.5) +
+  geom_vline(xintercept = mean(yac_combined$meanyac), color = "red", linetype = "dashed", alpha=0.5)+
+  # stat_smooth(geom='line', alpha=0.5, se=FALSE, method='lm')+
+  ggthemes::theme_economist() +
+  #center title with hjust = 0.5
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    plot.caption = element_text(hjust = 1, vjust = -.5),
+    axis.text.y = element_text(angle = 0, hjust = -.1),
+    legend.title = element_text(size = 12, hjust = 0, vjust = -0.5, face = "bold"),
+    legend.position = "top",
+    aspect.ratio = 1 / 1.618
+  ) +
+  labs(x="\n Offense YAC EPA per Catch", y= "DefenseYAC EPA per Catch\n ", title = "Offensive and Defensive YAC EPA per Catch 2023", caption = "Figure: @yonathanmelamed | Data: @nflfastR")+
+  #make ticks look nice
+  #if this doesn't work, `install.packages('scales')`
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 5)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 5)) +
+  scale_y_reverse(breaks = scales::pretty_breaks(n = 5))
+
+#### screen plot #########################  
+screen_o =  pbp_ftn %>% 
+    filter(is_screen_pass==1, !is.na(epa)) %>% 
+    group_by(posteam) %>% 
+    summarise(meanepa_o=mean(epa), sumepa_o=sum(epa), plays_o=n()) 
+screen_d =   pbp_ftn %>% 
+  filter(is_screen_pass==1, !is.na(epa)) %>% 
+  group_by(defteam) %>% 
+  summarise(meanepa_d=mean(epa), sumepa_d=sum(epa), plays_d=n()) 
+screen = screen_o %>% 
+  left_join(screen_d, by = c("posteam"="defteam")) %>% 
+  left_join(load_teams(), by = c('posteam' = 'team_abbr'))
+
+screen %>% 
+  ggplot(aes(x=meanepa_o, y=meanepa_d)) +
+  geom_nfl_logos(aes(team_abbr = posteam), width = 0.07, alpha = 0.75) +
+  geom_hline(yintercept = mean(screen$meanepa_d),color = "red", linetype = "dashed", alpha=0.5) +
+  geom_vline(xintercept = mean(screen$meanepa_o), color = "red", linetype = "dashed", alpha=0.5)+
+  # stat_smooth(geom='line', alpha=0.5, se=FALSE, method='lm')+
+  ggthemes::theme_economist() +
+  #center title with hjust = 0.5
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    plot.caption = element_text(hjust = 1, vjust = -.5),
+    axis.text.y = element_text(angle = 0, vjust = 0.5),
+    legend.title = element_text(size = 12, hjust = 0, vjust = 0.5, face = "bold"),
+    legend.position = "top",
+    aspect.ratio = 1 / 1.618
+  ) +
+ labs(x="\n Offense EPA/P on Screens", y= "Defense EPA/P on Screens\n", title = "Offensive and Defensive EPA/P on Screens 2023", caption = "Figure: @yonathanmelamed | Data: @nflfastR;FTN Charting")+
+scale_y_continuous(breaks = scales::pretty_breaks(n = 5)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 5)) +
+  scale_y_reverse(breaks = scales::pretty_breaks(n = 5), limits= c(.4, -.4)) +
+  xlim(-.4, .4) 
+```
+
+Still, the Chiefs have gained the most YAC EPA per catch this season, making it more important that the Ravens keep receivers in front them and tackle as a unit. (Definitely surprised to see Philly's D up there, which makes me think that this stat may say more about the opponents faced rather than defensive abilities.)
+
+On a similar note, Andy Reid has covered some of his receivers' deficiencies with an excellent screen game, utilizing the receiving backs at his disposal. Mike Macdonald will have to be smart with his blitz usage to not get caught off guard. 
+
+
+## RUN PLAY ACTION
+
+With a relatively weaker offense this year for the Chiefs has come a much stronger defense that has been considered one of the best in the league, especially against the pass. However, much of their success has come on standard, non-play action passes. Against play action, KC has struggled mightily. 
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+##plot
+no_pa_d =  pbp_ftn %>% 
+  filter(is_play_action==0, !is.na(epa), !is.na(defteam), qb_dropback==1) %>% 
+  group_by(defteam) %>% 
+  summarise(meanepa_no_pa=mean(epa), sumepa_o=sum(epa))
+pa_d =   pbp_ftn %>% 
+  filter(is_play_action==1, !is.na(epa), qb_dropback==1) %>% 
+  group_by(defteam) %>% 
+  summarise(meanepa_pa=mean(epa), sumepa_d=sum(epa), plays=n()) 
+pa_d_comb =  no_pa_d%>% 
+  left_join(pa_d) %>% 
+  left_join(load_teams(), by = c('defteam' = 'team_abbr')) %>% 
+  mutate(diff=meanepa_pa-meanepa_no_pa) %>% 
+  arrange(-diff)
+#plot
+pa_d_comb %>% 
+  ggplot(aes(x=meanepa_no_pa, y=meanepa_pa)) +
+  geom_nfl_logos(aes(team_abbr = defteam), width = 0.07, alpha = 0.75) +
+  geom_hline(yintercept = mean(pa_d_comb$meanepa_pa),color = "red", linetype = "dashed", alpha=0.5) +
+  geom_vline(xintercept = mean(pa_d_comb$meanepa_no_pa), color = "red", linetype = "dashed", alpha=0.5)+
+  #geom_hline(yintercept = 0, color = "black", linetype = "dashed", alpha=0.5) +
+ # geom_vline(xintercept = 0, color = "black", linetype = "dashed", alpha=0.5)+
+  # stat_smooth(geom='line', alpha=0.5, se=FALSE, method='lm')+
+  ggthemes::theme_economist() +
+  #center title with hjust = 0.5
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    plot.caption = element_text(hjust = 1, vjust = -.5),
+    axis.text.y = element_text(angle = 0, vjust = 0.5),
+    legend.title = element_text(size = 12, hjust = 0, vjust = 0.5, face = "bold"),
+    legend.position = "top",
+    aspect.ratio = 1 / 1.618
+  ) +
+   labs(x="\n EPA/P Play Action", y= "EPA/P No Play Action \n", title = "Defensive EPA/P Play Action vs Non-Play Action Dropbacks 2023", caption = "Figure: @yonathanmelamed | Data: @nflfastR;FTN Charting")+
+  #make ticks look nice
+  #if this doesn't work, `install.packages('scales')`
+
+  scale_y_reverse(breaks = scales::pretty_breaks(n = 5))+
+  scale_x_reverse(breaks = scales::pretty_breaks(n = 5))
+```
+
+Notice the Chiefs defense in the bottom right corner with a relatively good EPA against non-PA dropbacks but one of the worst against PA. As we know, play action passing in general is more efficient than non play action. Still, the significant difference in the Chiefs' play against play action vs standard dropbacks should encourage Todd Monken to dial up PA passes even more. Much has been talked about the Ravens using heavy personnel in this game, and I can envision some big chunk plays to either of the two dynamic tight ends from play action. 
+
+
+```{r pa_bar, echo=FALSE, warning=FALSE, fig.align='center'}
+pa_d_comb %>%
+  ggplot(aes(x = seq_along(diff), y = diff)) +
+  geom_hline(aes(yintercept = mean(diff)), color = "red", linetype = "dashed") +
+  geom_col(width = .5, colour = pa_d_comb$team_color, fill = pa_d_comb$team_color, alpha = 0.5) +
+  geom_nfl_logos(aes(team_abbr = defteam), width = 0.04, alpha = 0.75) +
+  #ggpmisc::geom_grob(aes(x = seq_along(diff), y = diff, label = grob), vp.width = 0.035) +
+  # scale_x_continuous(expand = c(0,0)) +
+  labs(
+    x = "\n Rank",
+    y = "EPA/P On PA Passing - EPA/P On Non-PA Passing \n",
+    title = "Difference in Defensive Efficiency",
+    subtitle = "Play Action vs Non Play Action Passing",
+    caption = "Figure: @yonathanmelamed | Data: @nflfastR;FTN Charting"
+  ) +
+  ggthemes::theme_economist() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.caption = element_text(hjust = 1),
+    axis.text.y = element_text(angle = 0, vjust = 0.5),
+    legend.title = element_text(size = 8, hjust = 0, vjust = 0.5, face = "bold"),
+    legend.position = "top",
+    aspect.ratio = 1 / 1.618
+  )
+```
